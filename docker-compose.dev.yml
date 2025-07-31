@@ -1,0 +1,126 @@
+# 开发环境 Docker Compose 配置
+version: '3.8'
+
+services:
+  # Neo4j 图数据库
+  neo4j:
+    image: neo4j:5.13-community
+    container_name: what-to-eat-neo4j-dev
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/all-in-rag
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+    volumes:
+      - neo4j_dev_data:/data
+      - neo4j_dev_logs:/logs
+      - neo4j_dev_import:/var/lib/neo4j/import
+      - neo4j_dev_plugins:/plugins
+      - ./data/cypher:/import
+    networks:
+      - what-to-eat-dev-network
+    restart: unless-stopped
+
+  # Milvus 向量数据库 - Standalone
+  milvus-etcd:
+    container_name: what-to-eat-milvus-etcd-dev
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_dev_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    networks:
+      - what-to-eat-dev-network
+    restart: unless-stopped
+
+  milvus-minio:
+    container_name: what-to-eat-milvus-minio-dev
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - minio_dev_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    networks:
+      - what-to-eat-dev-network
+    restart: unless-stopped
+
+  milvus-standalone:
+    container_name: what-to-eat-milvus-standalone-dev
+    image: milvusdb/milvus:v2.3.3
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: milvus-etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+    volumes:
+      - milvus_dev_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - "milvus-etcd"
+      - "milvus-minio"
+    networks:
+      - what-to-eat-dev-network
+    restart: unless-stopped
+
+  # Python 后端服务 (开发模式)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: what-to-eat-backend-dev
+    ports:
+      - "8000:8000"
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=all-in-rag
+      - MILVUS_HOST=milvus-standalone
+      - MILVUS_PORT=19530
+      - PYTHONPATH=/app
+      - FLASK_ENV=development
+      - DEBUG=true
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+    depends_on:
+      - neo4j
+      - milvus-standalone
+    networks:
+      - what-to-eat-dev-network
+    restart: unless-stopped
+    command: ["python", "main.py"]
+
+volumes:
+  neo4j_dev_data:
+    driver: local
+  neo4j_dev_logs:
+    driver: local
+  neo4j_dev_import:
+    driver: local
+  neo4j_dev_plugins:
+    driver: local
+  etcd_dev_data:
+    driver: local
+  minio_dev_data:
+    driver: local
+  milvus_dev_data:
+    driver: local
+
+networks:
+  what-to-eat-dev-network:
+    driver: bridge
