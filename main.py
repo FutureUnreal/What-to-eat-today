@@ -328,16 +328,6 @@ class AdvancedGraphRAGSystem:
             logger.warning(f"获取查询向量失败: {e}")
             return None
 
-    # _calculate_similarity 方法已移至 SessionCacheManager
-
-    # _check_semantic_cache 方法已移至 SessionCacheManager
-
-    # _add_to_semantic_cache 方法已移至 SessionCacheManager
-
-    # _add_to_context 方法已移至 SessionCacheManager
-
-    # _get_context_for_query 方法已移至 SessionCacheManager
-
     def run_web_service(self):
         """运行Web服务模式"""
         if not self.system_ready:
@@ -350,16 +340,6 @@ class AdvancedGraphRAGSystem:
             if not app:
                 print("❌ Flask应用初始化失败")
                 return
-
-            # Web路由已移至 WebServiceHandler
-            
-            # /api/chat 路由已移至 WebServiceHandler
-            
-            # /api/chat/stream 路由已移至 WebServiceHandler
-            
-            # /api/stats 路由已移至 WebServiceHandler
-
-            # /api/recipes/<recipe_id> 路由已移至 WebServiceHandler
 
             print("🚀 启动Web服务...")
             print(f"📊 健康检查: http://localhost:8000/health")
@@ -376,18 +356,6 @@ class AdvancedGraphRAGSystem:
         except Exception as e:
             logger.error(f"Web服务启动失败: {e}")
             print(f"❌ Web服务启动失败: {e}")
-    
-    # _get_featured_recipes_from_db 方法已移除 - 不使用评分排序，改用随机推荐
-
-    # _get_fallback_recommendations 方法已移至 RecipeRecommendationManager
-
-    # _get_random_recipes_with_images 方法已移至 RecipeRecommendationManager
-
-
-
-    # _get_recipe_detail_from_db 和 _read_recipe_markdown 方法已移至 RecipeRecommendationManager
-
-    # _extract_image_from_markdown 方法已移至 RecipeRecommendationManager
 
     def _cleanup(self):
         """清理资源"""
