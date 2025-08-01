@@ -13,6 +13,7 @@ interface AppStore extends AppState {
   createChatSession: (title?: string) => string
   switchChatSession: (sessionId: string) => void
   deleteChatSession: (sessionId: string) => void
+  updateSessionTitle: (sessionId: string, title: string) => void
   addMessage: (sessionId: string, message: Omit<ChatSession['messages'][0], 'id' | 'timestamp'>) => string
   updateMessage: (sessionId: string, messageId: string, content: string) => void
   setChatLoading: (loading: boolean) => void
@@ -184,6 +185,29 @@ export const useAppStore = create<AppStore>()(
               ...state.chat,
               sessions: newSessions,
               currentSession
+            }
+          }
+        }),
+
+      updateSessionTitle: (sessionId, title) =>
+        set((state) => {
+          const sessionIndex = state.chat.sessions.findIndex(s => s.id === sessionId)
+          if (sessionIndex === -1) return state
+
+          const newSessions = [...state.chat.sessions]
+          newSessions[sessionIndex] = {
+            ...newSessions[sessionIndex],
+            title,
+            updatedAt: new Date()
+          }
+
+          return {
+            chat: {
+              ...state.chat,
+              sessions: newSessions,
+              currentSession: state.chat.currentSession?.id === sessionId
+                ? newSessions[sessionIndex]
+                : state.chat.currentSession
             }
           }
         }),

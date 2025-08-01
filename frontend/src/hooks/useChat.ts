@@ -10,6 +10,7 @@ export const useChat = () => {
     setChatLoading,
     setChatStreaming,
     createChatSession,
+    updateSessionTitle,
     addToast
   } = useAppStore()
   
@@ -31,6 +32,16 @@ export const useChat = () => {
         role: 'user',
         content: content.trim()
       })
+
+      // 如果这是第一条消息，更新会话标题
+      const currentSession = chat.sessions.find(s => s.id === sessionId)
+      if (currentSession && currentSession.messages.length === 0) {
+        // 截取前30个字符作为标题，避免标题过长
+        const title = content.trim().length > 30
+          ? content.trim().substring(0, 30) + '...'
+          : content.trim()
+        updateSessionTitle(sessionId, title)
+      }
       
       // 创建助手消息占位符
       const assistantMessageId = addMessage(sessionId, {
@@ -109,11 +120,13 @@ export const useChat = () => {
     }
   }, [
     chat.currentSession?.id,
+    chat.sessions,
     addMessage,
     updateMessage,
     setChatLoading,
     setChatStreaming,
     createChatSession,
+    updateSessionTitle,
     addToast
   ])
   

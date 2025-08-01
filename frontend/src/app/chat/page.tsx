@@ -95,49 +95,70 @@ const ChatPage: React.FC = () => {
   }
   
   return (
-    <div className="h-screen flex bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* 侧边栏 */}
       <AnimatePresence>
         {ui.sidebarOpen && (
           <>
-            {/* 移动端遮罩 */}
+            {/* 全屏遮罩 */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+              className="fixed inset-0 bg-black/50 z-40"
               onClick={() => setSidebarOpen(false)}
             />
-            
-            {/* 侧边栏内容 */}
+
+            {/* 侧边栏内容 - 完全 fixed 定位，不影响主布局 */}
             <motion.aside
-              initial={{ x: -300 }}
+              initial={{ x: -320 }}
               animate={{ x: 0 }}
-              exit={{ x: -300 }}
-              className="fixed lg:relative left-0 top-0 h-full w-80 glass border-r border-white/20 z-50 flex flex-col"
+              exit={{ x: -320 }}
+              transition={{
+                type: "tween",
+                duration: 0.15,
+                ease: "easeOut"
+              }}
+              className="fixed left-0 top-0 h-full w-80 glass border-r border-white/20 z-50 flex flex-col"
             >
-              {/* 侧边栏头部 */}
+              {/* 侧边栏头部 - 集成导航功能 */}
               <div className="p-4 border-b border-white/10">
-                <div className="flex items-center justify-between">
+                {/* 主标题和返回首页 */}
+                <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-2">
                     <ChefHat className="w-6 h-6 text-blue-500" />
-                    <h2 className="text-lg font-semibold gradient-text">对话历史</h2>
+                    <h1 className="text-lg font-semibold gradient-text">今天吃什么</h1>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSidebarOpen(false)}
-                    className="lg:hidden"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.location.href = '/'}
+                      className="glass-button text-xs"
+                    >
+                      返回首页
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSidebarOpen(false)}
+                      className="lg:hidden"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
-                
+
+                {/* 对话历史标题和新对话按钮 */}
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-medium text-gray-600">对话历史</h2>
+                </div>
+
                 <Button
                   variant="primary"
                   size="sm"
                   onClick={handleCreateNewChat}
-                  className="w-full mt-3"
+                  className="w-full"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   新对话
@@ -199,53 +220,36 @@ const ChatPage: React.FC = () => {
       </AnimatePresence>
       
       {/* 主聊天区域 */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* 顶部导航 */}
-        <header className="glass border-b border-white/20 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSidebarOpen(!ui.sidebarOpen)}
-              >
-                <Sidebar className="w-4 h-4" />
-              </Button>
-              
-              <div className="flex items-center space-x-2">
-                <ChefHat className="w-6 h-6 text-blue-500" />
-                <h1 className="text-lg font-semibold gradient-text">
-                  {currentSession?.title || '今天吃什么'}
-                </h1>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              {isStreaming && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={stopGeneration}
-                >
-                  停止生成
-                </Button>
-              )}
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => window.location.href = '/'}
-              >
-                返回首页
-              </Button>
-            </div>
+      <div className="w-full h-full flex flex-col relative">
+        {/* 浮动的侧边栏按钮 */}
+        <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSidebarOpen(!ui.sidebarOpen)}
+            className="glass-button hover:bg-white/10 transition-all duration-150"
+          >
+            <Sidebar className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* 停止生成按钮（如果正在生成） */}
+        {isStreaming && (
+          <div className="absolute top-4 right-4 z-10">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={stopGeneration}
+            >
+              停止生成
+            </Button>
           </div>
-        </header>
+        )}
         
         {/* 消息区域 */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto custom-scrollbar pt-16">
           {currentSession && currentSession.messages.length > 0 ? (
-            <div className="py-6">
+            <div className="py-6 px-4">
               {currentSession.messages.map((message) => (
                 <ChatMessage
                   key={message.id}
@@ -258,8 +262,8 @@ const ChatPage: React.FC = () => {
               <div ref={messagesEndRef} />
             </div>
           ) : (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center max-w-md mx-auto px-4">
+            <div className="flex-1 flex items-center justify-center px-4">
+              <div className="text-center max-w-md mx-auto">
                 <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
                   <ChefHat className="w-8 h-8 text-white" />
                 </div>
