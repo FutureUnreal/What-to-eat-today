@@ -544,17 +544,42 @@ class HybridRetrievalModule:
     
     def hybrid_search(self, query: str, top_k: int = 5) -> List[Document]:
         """
-        混合检索：使用Round-robin轮询合并策略
-        公平轮询合并不同检索结果，不使用权重配置
+        混合检索：并行执行多种检索策略
         """
-        logger.info(f"开始混合检索: {query}")
-        
-        # 1. 双层检索（实体+主题检索）
-        dual_docs = self.dual_level_retrieval(query, top_k)
-        
-        # 2. 增强向量检索
-        vector_docs = self.vector_search_enhanced(query, top_k)
-        
+        import concurrent.futures
+
+        logger.info(f"开始并行混合检索: {query}")
+
+        # 🚀 并行执行不同检索策略
+        dual_docs = []
+        vector_docs = []
+
+        def dual_search():
+            nonlocal dual_docs
+            try:
+                dual_docs = self.dual_level_retrieval(query, top_k)
+                logger.info(f"双层检索完成: {len(dual_docs)} 个结果")
+            except Exception as e:
+                logger.error(f"双层检索失败: {e}")
+                dual_docs = []
+
+        def vector_search():
+            nonlocal vector_docs
+            try:
+                vector_docs = self.vector_search_enhanced(query, top_k)
+                logger.info(f"向量检索完成: {len(vector_docs)} 个结果")
+            except Exception as e:
+                logger.error(f"向量检索失败: {e}")
+                vector_docs = []
+
+        # 使用线程池并行执行
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_dual = executor.submit(dual_search)
+            future_vector = executor.submit(vector_search)
+
+            # 等待检索完成
+            concurrent.futures.wait([future_dual, future_vector], timeout=20)
+
         # 3. Round-robin轮询合并
         merged_docs = []
         seen_doc_ids = set()

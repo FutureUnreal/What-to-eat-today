@@ -27,6 +27,9 @@ from rag_modules import (
 from rag_modules.hybrid_retrieval import HybridRetrievalModule
 from rag_modules.graph_rag_retrieval import GraphRAGRetrieval
 from rag_modules.intelligent_query_router import IntelligentQueryRouter, QueryAnalysis
+from rag_modules.session_cache_manager import SessionCacheManager
+from rag_modules.web_service_handler import WebServiceHandler
+from rag_modules.recipe_recommendation import RecipeRecommendationManager
 
 # 加载环境变量
 load_dotenv()
@@ -59,13 +62,8 @@ class AdvancedGraphRAGSystem:
         # 系统状态
         self.system_ready = False
 
-        # 🚀 会话级语义缓存系统 - 针对每个聊天窗口独立缓存
-        self.session_caches = {}  # 按session_id分组的缓存：{session_id: {query: response}}
-        self.session_embeddings = {}  # 按session_id分组的向量：{session_id: {query: embedding}}
-        self.session_contexts = {}  # 按session_id分组的上下文：{session_id: [messages]}
-        self.cache_threshold = 0.75  # 语义相似度阈值
-        self.max_session_cache_size = 50  # 每个会话最大缓存条目数
-        self.max_context_length = 10  # 每个会话保留的最大上下文消息数
+        # 会话缓存管理器
+        self.cache_manager = None
         
     def initialize_system(self):
         """初始化高级图RAG系统"""
@@ -123,7 +121,21 @@ class AdvancedGraphRAGSystem:
                 llm_client=self.generation_module.client,
                 config=self.config
             )
-            
+
+            # 7. 会话缓存管理器
+            print("初始化会话缓存管理器...")
+            self.cache_manager = SessionCacheManager(
+                embedding_model=self.index_module.embeddings
+            )
+
+            # 8. 菜谱推荐管理器
+            print("初始化菜谱推荐管理器...")
+            self.recipe_manager = RecipeRecommendationManager()
+
+            # 9. Web服务处理器
+            print("初始化Web服务处理器...")
+            self.web_handler = WebServiceHandler(self)
+
             print("✅ 高级图RAG系统初始化完成！")
             
         except Exception as e:
@@ -316,384 +328,39 @@ class AdvancedGraphRAGSystem:
             logger.warning(f"获取查询向量失败: {e}")
             return None
 
-    def _calculate_similarity(self, embedding1, embedding2):
-        """计算两个向量的余弦相似度"""
-        try:
-            import numpy as np
-            dot_product = np.dot(embedding1, embedding2)
-            norm1 = np.linalg.norm(embedding1)
-            norm2 = np.linalg.norm(embedding2)
-            return dot_product / (norm1 * norm2)
-        except:
-            return 0.0
+    # _calculate_similarity 方法已移至 SessionCacheManager
 
-    def _check_semantic_cache(self, query: str, session_id: str = None):
-        """检查会话级语义缓存中是否有相似查询"""
-        if not session_id or session_id not in self.session_caches:
-            return None
+    # _check_semantic_cache 方法已移至 SessionCacheManager
 
-        session_cache = self.session_caches[session_id]
-        session_embeddings = self.session_embeddings.get(session_id, {})
+    # _add_to_semantic_cache 方法已移至 SessionCacheManager
 
-        if not session_cache:
-            return None
+    # _add_to_context 方法已移至 SessionCacheManager
 
-        query_embedding = self._get_query_embedding(query)
-        if query_embedding is None:
-            return None
-
-        # 查找最相似的缓存查询
-        best_similarity = 0
-        best_response = None
-
-        for cached_query, cached_data in session_cache.items():
-            cached_embedding = session_embeddings.get(cached_query)
-            if cached_embedding is not None:
-                similarity = self._calculate_similarity(query_embedding, cached_embedding)
-                if similarity > best_similarity and similarity >= self.cache_threshold:
-                    best_similarity = similarity
-                    best_response = cached_data['response']
-
-        if best_response:
-            logger.info(f"🎯 会话缓存命中! Session: {session_id}, 相似度: {best_similarity:.3f}")
-            return best_response
-
-        return None
-
-    def _add_to_semantic_cache(self, query: str, response: str, session_id: str = None):
-        """将查询-答案对添加到会话级语义缓存"""
-        try:
-            if not session_id:
-                return
-
-            # 初始化会话缓存
-            if session_id not in self.session_caches:
-                self.session_caches[session_id] = {}
-                self.session_embeddings[session_id] = {}
-
-            session_cache = self.session_caches[session_id]
-            session_embeddings = self.session_embeddings[session_id]
-
-            # 限制会话缓存大小
-            if len(session_cache) >= self.max_session_cache_size:
-                # 删除最旧的缓存项
-                oldest_key = next(iter(session_cache))
-                del session_cache[oldest_key]
-                del session_embeddings[oldest_key]
-
-            query_embedding = self._get_query_embedding(query)
-            if query_embedding is not None:
-                session_cache[query] = {
-                    'response': response,
-                    'timestamp': datetime.now()
-                }
-                session_embeddings[query] = query_embedding
-                logger.info(f"💾 已缓存到会话 {session_id}: {query[:50]}...")
-        except Exception as e:
-            logger.warning(f"会话缓存添加失败: {e}")
-
-    def _add_to_context(self, session_id: str, user_message: str, ai_response: str):
-        """添加消息到会话上下文"""
-        try:
-            if not session_id:
-                return
-
-            if session_id not in self.session_contexts:
-                self.session_contexts[session_id] = []
-
-            context = self.session_contexts[session_id]
-
-            # 添加用户消息和AI回复
-            context.append({
-                'role': 'user',
-                'content': user_message,
-                'timestamp': datetime.now()
-            })
-            context.append({
-                'role': 'assistant',
-                'content': ai_response,
-                'timestamp': datetime.now()
-            })
-
-            # 限制上下文长度
-            if len(context) > self.max_context_length * 2:  # *2 因为每轮对话有两条消息
-                context = context[-(self.max_context_length * 2):]
-                self.session_contexts[session_id] = context
-
-            logger.info(f"📝 已添加上下文到会话 {session_id}, 当前长度: {len(context)}")
-        except Exception as e:
-            logger.warning(f"上下文添加失败: {e}")
-
-    def _get_context_for_query(self, session_id: str, current_query: str):
-        """获取会话上下文，用于增强当前查询"""
-        try:
-            if not session_id or session_id not in self.session_contexts:
-                return current_query
-
-            context = self.session_contexts[session_id]
-            if not context:
-                return current_query
-
-            # 构建包含上下文的查询
-            context_text = ""
-            for msg in context[-6:]:  # 只取最近3轮对话
-                role = "用户" if msg['role'] == 'user' else "助手"
-                context_text += f"{role}: {msg['content'][:100]}...\n"
-
-            enhanced_query = f"基于以下对话上下文回答问题：\n{context_text}\n当前问题: {current_query}"
-            logger.info(f"🔗 已为会话 {session_id} 添加上下文，查询长度: {len(enhanced_query)}")
-            return enhanced_query
-
-        except Exception as e:
-            logger.warning(f"上下文获取失败: {e}")
-            return current_query
+    # _get_context_for_query 方法已移至 SessionCacheManager
 
     def run_web_service(self):
         """运行Web服务模式"""
         if not self.system_ready:
             print("❌ 系统未就绪，请先构建知识库")
             return
-            
+
         try:
-            from flask import Flask, request, jsonify, Response
-            from flask_cors import CORS
-            import json
+            # 使用Web服务处理器设置Flask应用
+            app = self.web_handler.setup_flask_app()
+            if not app:
+                print("❌ Flask应用初始化失败")
+                return
+
+            # Web路由已移至 WebServiceHandler
             
-            app = Flask(__name__)
-            CORS(app, origins=["http://localhost", "http://localhost:3000", "http://127.0.0.1:3000"],
-                 methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-                 allow_headers=['Content-Type', 'Authorization'])
-
-            # 添加静态文件服务
-            @app.route('/static/<path:filename>')
-            def serve_static(filename):
-                """提供静态文件服务"""
-                import os
-                from flask import send_from_directory
-
-                # 安全检查，防止路径遍历攻击
-                if '..' in filename or filename.startswith('/'):
-                    return "Invalid path", 400
-
-                file_path = os.path.join('.', filename)
-                if os.path.exists(file_path):
-                    directory = os.path.dirname(file_path)
-                    filename_only = os.path.basename(file_path)
-                    return send_from_directory(directory, filename_only)
-                else:
-                    return "File not found", 404
-
-
+            # /api/chat 路由已移至 WebServiceHandler
             
-            @app.route('/health', methods=['GET'])
-            def health_check():
-                return jsonify({"status": "healthy", "system_ready": self.system_ready})
+            # /api/chat/stream 路由已移至 WebServiceHandler
             
-            @app.route('/api/chat', methods=['POST'])
-            def chat():
-                try:
-                    data = request.get_json()
-                    query = data.get('message', '')
-                    
-                    if not query:
-                        return jsonify({"error": "消息不能为空"}), 400
+            # /api/stats 路由已移至 WebServiceHandler
 
-                    # 获取会话ID（如果没有则生成一个）
-                    import time as time_module
-                    session_id = data.get('session_id', f"session_{int(time_module.time())}")
+            # /api/recipes/<recipe_id> 路由已移至 WebServiceHandler
 
-                    # 🚀 首先检查会话级语义缓存
-                    cached_response = self._check_semantic_cache(query, session_id)
-                    if cached_response:
-                        # 即使是缓存命中，也要添加到上下文
-                        self._add_to_context(session_id, query, cached_response)
-                        return jsonify({
-                            "response": cached_response,
-                            "query": query,
-                            "session_id": session_id,
-                            "timestamp": str(datetime.now()),
-                            "from_cache": True
-                        })
-
-                    # 🔗 获取上下文增强的查询
-                    enhanced_query = self._get_context_for_query(session_id, query)
-
-                    # 缓存未命中，执行完整的RAG流程
-                    documents, analysis = self.query_router.route_query(
-                        query=enhanced_query,
-                        top_k=self.config.top_k
-                    )
-                    # 使用生成模块生成最终答案
-                    response = self.generation_module.generate_adaptive_answer(enhanced_query, documents)
-
-                    # 将结果添加到会话缓存和上下文
-                    self._add_to_semantic_cache(query, response, session_id)
-                    self._add_to_context(session_id, query, response)
-                    
-                    return jsonify({
-                        "response": response,
-                        "query": query,
-                        "timestamp": str(datetime.now())
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"Chat API错误: {e}")
-                    return jsonify({"error": str(e)}), 500
-            
-            @app.route('/api/chat/stream', methods=['POST'])
-            def chat_stream():
-                try:
-                    data = request.get_json()
-                    query = data.get('message', '')
-                    session_id = data.get('session_id', '')
-
-                    if not query:
-                        return jsonify({"error": "消息不能为空"}), 400
-
-                    def generate():
-                        try:
-                            # 获取会话ID
-                            import time as time_module
-                            session_id = data.get('session_id', f"session_{int(time_module.time())}")
-
-                            # 🚀 首先检查会话级语义缓存
-                            cached_response = self._check_semantic_cache(query, session_id)
-                            if cached_response:
-                                # 缓存命中，快速返回
-                                self._add_to_context(session_id, query, cached_response)
-                                import json
-                                chunk_size = 3
-                                for i in range(0, len(cached_response), chunk_size):
-                                    chunk = cached_response[i:i+chunk_size]
-                                    data_obj = {"chunk": chunk, "from_cache": True}
-                                    yield f"data: {json.dumps(data_obj)}\n\n"
-                                    time.sleep(0.02)  # 更快的流式响应
-                                yield f"data: [DONE]\n\n"
-                                return
-
-                            # 🔗 获取上下文增强的查询
-                            enhanced_query = self._get_context_for_query(session_id, query)
-
-                            # 缓存未命中，执行完整的RAG流程
-                            documents, analysis = self.query_router.route_query(
-                                query=enhanced_query,
-                                top_k=self.config.top_k
-                            )
-
-                            # 🚀 使用真正的流式生成
-                            import json
-                            full_response = ""
-
-                            for chunk in self.generation_module.generate_adaptive_answer_stream(enhanced_query, documents):
-                                full_response += chunk
-                                data_obj = {"chunk": chunk}
-                                yield f"data: {json.dumps(data_obj)}\n\n"
-
-                            # 将完整结果添加到会话缓存和上下文
-                            self._add_to_semantic_cache(query, full_response, session_id)
-                            self._add_to_context(session_id, query, full_response)
-
-                            # 发送结束标记
-                            yield f"data: [DONE]\n\n"
-
-                        except Exception as e:
-                            logger.error(f"Stream API错误: {e}")
-                            error_msg = f"抱歉，处理您的问题时出现错误：{str(e)}"
-                            data_obj = {"chunk": error_msg}
-                            yield f"data: {json.dumps(data_obj)}\n\n"
-                            yield f"data: [DONE]\n\n"
-
-                    response = Response(generate(), mimetype='text/event-stream')
-                    response.headers['Cache-Control'] = 'no-cache'
-                    response.headers['Connection'] = 'keep-alive'
-                    response.headers['Access-Control-Allow-Origin'] = '*'
-                    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-                    return response
-
-                except Exception as e:
-                    logger.error(f"Stream API错误: {e}")
-                    return jsonify({"error": str(e)}), 500
-            
-            @app.route('/api/stats', methods=['GET'])
-            def get_stats():
-                try:
-                    stats = self.data_module.get_statistics()
-                    return jsonify(stats)
-                except Exception as e:
-                    return jsonify({"error": str(e)}), 500
-
-            # 菜谱详情API
-            @app.route('/api/recipes/<recipe_id>', methods=['GET'])
-            def get_recipe_detail(recipe_id):
-                """获取菜谱详情"""
-                try:
-                    recipe_detail = self._get_recipe_detail_from_db(recipe_id)
-
-                    if recipe_detail:
-                        return jsonify({
-                            "success": True,
-                            "data": recipe_detail,
-                            "message": "获取菜谱详情成功"
-                        })
-                    else:
-                        return jsonify({
-                            "success": False,
-                            "message": "菜谱不存在",
-                            "data": None
-                        }), 404
-
-                except Exception as e:
-                    logger.error(f"获取菜谱详情失败: {e}")
-                    return jsonify({
-                        "success": False,
-                        "message": f"获取菜谱详情失败: {str(e)}",
-                        "data": None
-                    }), 500
-
-            @app.route('/api/recipes/recommendations', methods=['POST'])
-            def get_recommendations():
-                try:
-                    data = request.get_json() or {}
-
-                    # 兼容不同的请求格式
-                    query = data.get('query', '推荐一些菜谱')
-                    limit = data.get('limit', 3)
-                    preferences = data.get('preferences', {})
-
-                    # 如果有用户偏好，构建更具体的查询
-                    if preferences:
-                        dietary_restrictions = preferences.get('dietaryRestrictions', [])
-                        favorite_cuisines = preferences.get('favoriteCuisines', [])
-                        cooking_skill = preferences.get('cookingSkill', 'beginner')
-
-                        if dietary_restrictions or favorite_cuisines:
-                            query_parts = ["推荐一些"]
-                            if favorite_cuisines:
-                                query_parts.append(f"{','.join(favorite_cuisines)}")
-                            if dietary_restrictions:
-                                query_parts.append(f"适合{','.join(dietary_restrictions)}的")
-                            if cooking_skill == 'beginner':
-                                query_parts.append("简单易做的")
-                            query_parts.append("菜谱")
-                            query = "".join(query_parts)
-
-                    # 获取有图片的随机推荐菜谱
-                    recipes = self._get_random_recipes_with_images(limit)
-
-                    return jsonify({
-                        "success": True,
-                        "data": recipes,
-                        "total": len(recipes),
-                        "query": query
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"获取推荐失败: {e}")
-                    return jsonify({"error": str(e)}), 500
-            
-
-
-            
             print("🚀 启动Web服务...")
             print(f"📊 健康检查: http://localhost:8000/health")
             print(f"💬 聊天API: http://localhost:8000/api/chat")
@@ -701,360 +368,26 @@ class AdvancedGraphRAGSystem:
             print(f"🍽️ 菜谱推荐: http://localhost:8000/api/recipes/recommendations")
             print(f"📖 菜谱详情: http://localhost:8000/api/recipes/<recipe_id>")
             print(f"📈 统计信息: http://localhost:8000/api/stats")
-            
+            print("=" * 50)
+
             # 启动Flask应用
             app.run(host='0.0.0.0', port=8000, debug=False)
-            
-        except ImportError:
-            print("❌ Flask未安装，无法启动Web服务")
-            print("请运行: pip install flask")
+
         except Exception as e:
             logger.error(f"Web服务启动失败: {e}")
             print(f"❌ Web服务启动失败: {e}")
     
-    def _get_featured_recipes_from_db(self, limit=6):
-        """从图数据库获取精选推荐菜谱"""
-        try:
-            if not hasattr(self, 'graph_rag_retrieval') or not self.graph_rag_retrieval.driver:
-                logger.warning("图数据库连接不可用，返回空结果")
-                return []
+    # _get_featured_recipes_from_db 方法已移除 - 不使用评分排序，改用随机推荐
 
-            with self.graph_rag_retrieval.driver.session() as session:
-                # 查询评分较高、比较受欢迎的菜谱
-                cypher_query = """
-                MATCH (r:Recipe)
-                WHERE r.nodeId >= '200000000'
-                OPTIONAL MATCH (r)-[:BELONGS_TO_CATEGORY]->(c:Category)
-                WITH r, c
-                RETURN
-                    r.nodeId as id,
-                    r.name as name,
-                    COALESCE(r.description, '美味可口的经典菜谱') as description,
-                    COALESCE(c.name, r.category, '家常菜') as category,
-                    COALESCE(r.difficulty, '★★★') as difficulty_stars,
-                    COALESCE(r.cookingTime, 30) as cookingTime,
-                    COALESCE(r.prepTime, 15) as prepTime,
-                    COALESCE(r.servings, 2) as servings,
-                    COALESCE(r.tags, []) as tags,
-                    COALESCE(r.rating, 4.5) as rating
-                ORDER BY
-                    CASE WHEN r.rating IS NOT NULL THEN r.rating ELSE 4.5 END DESC,
-                    r.name
-                LIMIT $limit
-                """
+    # _get_fallback_recommendations 方法已移至 RecipeRecommendationManager
 
-                result = session.run(cypher_query, {"limit": limit})
-                recipes = []
-
-                for record in result:
-                    # 转换难度星级为前端期望的格式
-                    difficulty_stars = record.get('difficulty_stars', '★★★')
-                    star_count = difficulty_stars.count('★')
-                    if star_count <= 2:
-                        difficulty = 'easy'
-                    elif star_count <= 3:
-                        difficulty = 'medium'
-                    else:
-                        difficulty = 'hard'
-
-                    recipe = {
-                        "id": record.get('id'),
-                        "name": record.get('name'),
-                        "description": record.get('description'),
-                        "category": record.get('category'),
-                        "imageUrl": f"https://via.placeholder.com/300x200?text={record.get('name', 'Recipe')}",
-                        "cookingTime": int(record.get('cookingTime', 30)),
-                        "prepTime": int(record.get('prepTime', 15)),
-                        "servings": int(record.get('servings', 2)),
-                        "difficulty": difficulty,
-                        "rating": float(record.get('rating', 4.5)),
-                        "tags": record.get('tags', []),
-                        "ingredients": [],
-                        "steps": [],
-                        "createdAt": "2024-01-01T00:00:00Z",
-                        "updatedAt": "2024-01-01T00:00:00Z"
-                    }
-                    recipes.append(recipe)
-
-                logger.info(f"从数据库获取到 {len(recipes)} 个推荐菜谱")
-                return recipes
-
-        except Exception as e:
-            logger.error(f"从数据库获取推荐菜谱失败: {e}")
-            return []
-
-    def _get_fallback_recommendations(self, limit=6):
-        """备用推荐菜谱（当数据库查询失败时使用）"""
-        fallback_recipes = [
-            {
-                "id": "fallback_001",
-                "name": "红烧肉",
-                "description": "肥瘦相间，入口即化的经典家常菜",
-                "category": "家常菜",
-                "imageUrl": "https://via.placeholder.com/300x200?text=红烧肉",
-                "cookingTime": 60,
-                "prepTime": 15,
-                "servings": 4,
-                "difficulty": "medium",
-                "rating": 4.8,
-                "tags": ["家常菜", "下饭", "经典"],
-                "ingredients": [],
-                "steps": [],
-                "createdAt": "2024-01-01T00:00:00Z",
-                "updatedAt": "2024-01-01T00:00:00Z"
-            },
-            {
-                "id": "fallback_002",
-                "name": "西红柿鸡蛋",
-                "description": "酸甜开胃，营养丰富的国民菜",
-                "category": "家常菜",
-                "imageUrl": "https://via.placeholder.com/300x200?text=西红柿鸡蛋",
-                "cookingTime": 15,
-                "prepTime": 10,
-                "servings": 2,
-                "difficulty": "easy",
-                "rating": 4.6,
-                "tags": ["简单", "营养", "下饭"],
-                "ingredients": [],
-                "steps": [],
-                "createdAt": "2024-01-01T00:00:00Z",
-                "updatedAt": "2024-01-01T00:00:00Z"
-            }
-        ]
-        return fallback_recipes[:limit]
-
-    def _get_random_recipes_with_images(self, limit=3):
-        """从预生成的索引文件获取随机的有图片的菜谱推荐"""
-        try:
-            import json
-            import random
-            import os
-
-            # 读取预生成的菜谱索引文件
-            index_file = "data/recipes_with_images.json"
-
-            if not os.path.exists(index_file):
-                logger.warning(f"菜谱索引文件不存在: {index_file}")
-                return self._get_fallback_recommendations(limit)
-
-            with open(index_file, 'r', encoding='utf-8') as f:
-                recipes_data = json.load(f)
-
-            if not recipes_data:
-                logger.warning("菜谱索引文件为空")
-                return self._get_fallback_recommendations(limit)
-
-            # 转换为API格式
-            recipes_with_images = []
-            for i, recipe_data in enumerate(recipes_data):
-                # 生成随机难度
-                difficulties = ['easy', 'medium', 'hard']
-                difficulty = random.choice(difficulties)
-
-                # 处理图片URL
-                image_url = recipe_data.get('image_url', '')
-                if image_url and not image_url.startswith('http'):
-                    # 如果是相对路径，转换为绝对路径
-                    file_path = recipe_data.get('file_path', '')
-                    if file_path:
-                        # 获取文件所在目录
-                        import os
-                        file_dir = os.path.dirname(file_path)
-                        # 处理相对路径（去掉 ./ 前缀）
-                        if image_url.startswith('./'):
-                            image_url = image_url[2:]
-                        # 构建GitHub LFS媒体URL
-                        # 从file_path中提取dishes目录后的路径
-                        # 例如: "data\\dishes\\vegetable_dish\\鸡蛋羹\\微波炉鸡蛋羹.md" -> "dishes/vegetable_dish/鸡蛋羹/"
-                        if 'dishes' in file_path:
-                            # 找到dishes的位置，提取dishes后面的路径
-                            dishes_index = file_path.find('dishes')
-                            if dishes_index != -1:
-                                # 提取从dishes开始到文件名之前的路径
-                                path_after_dishes = file_path[dishes_index:].replace('\\', '/')
-                                # 移除文件名，只保留目录路径
-                                dir_path = '/'.join(path_after_dishes.split('/')[:-1])
-                                github_path = f"{dir_path}/{image_url}"
-                            else:
-                                github_path = image_url
-                        else:
-                            github_path = image_url
-
-                        # 使用您fork的HowToCook仓库的GitHub LFS媒体URL
-                        image_url = f"https://media.githubusercontent.com/media/FutureUnreal/HowToCook/master/{github_path}"
-                        logger.info(f"转换后的GitHub图片URL: {image_url}")
-
-                recipe = {
-                    "id": f"recipe_{i + 1}",
-                    "name": recipe_data.get('name', '未知菜谱'),
-                    "description": recipe_data.get('description', '美味可口的经典菜谱'),
-                    "category": recipe_data.get('category', '家常菜'),
-                    "imageUrl": image_url or f"https://via.placeholder.com/300x200?text={recipe_data.get('name', 'Recipe')}",
-                    "cookingTime": recipe_data.get('cooking_time', 30),
-                    "prepTime": 15,
-                    "servings": 2,
-                    "difficulty": difficulty,
-                    "tags": recipe_data.get('tags', []),
-                    "ingredients": [],
-                    "steps": [],
-                    "markdownPath": recipe_data.get('file_path', ''),
-                    "createdAt": "2024-01-01T00:00:00Z",
-                    "updatedAt": "2024-01-01T00:00:00Z"
-                }
-                recipes_with_images.append(recipe)
-
-            # 随机选择指定数量的菜谱
-            if len(recipes_with_images) >= limit:
-                selected_recipes = random.sample(recipes_with_images, limit)
-            else:
-                selected_recipes = recipes_with_images[:limit]
-                # 如果不够，用备用数据补充
-                if len(selected_recipes) < limit:
-                    fallback = self._get_fallback_recommendations(limit - len(selected_recipes))
-                    selected_recipes.extend(fallback)
-
-            logger.info(f"从索引文件加载 {len(recipes_with_images)} 个菜谱，返回 {len(selected_recipes)} 个")
-            return selected_recipes
-
-        except Exception as e:
-            logger.error(f"从索引文件获取菜谱失败: {e}")
-            return self._get_fallback_recommendations(limit)
+    # _get_random_recipes_with_images 方法已移至 RecipeRecommendationManager
 
 
 
-    def _get_recipe_detail_from_db(self, recipe_id):
-        """从索引文件和原始文件获取菜谱详情"""
-        try:
-            import json
-            import os
+    # _get_recipe_detail_from_db 和 _read_recipe_markdown 方法已移至 RecipeRecommendationManager
 
-            # 首先尝试从索引文件获取菜谱信息
-            index_file = "data/recipes_with_images.json"
-
-            if os.path.exists(index_file):
-                with open(index_file, 'r', encoding='utf-8') as f:
-                    recipes_data = json.load(f)
-
-                # 查找对应的菜谱（recipe_id格式为 recipe_N）
-                recipe_index = None
-                if recipe_id.startswith('recipe_'):
-                    try:
-                        recipe_index = int(recipe_id.split('_')[1]) - 1
-                    except (ValueError, IndexError):
-                        pass
-
-                if recipe_index is not None and 0 <= recipe_index < len(recipes_data):
-                    recipe_data = recipes_data[recipe_index]
-
-                    # 读取Markdown文件内容
-                    markdown_content = None
-                    file_path = recipe_data.get('file_path', '')
-                    if file_path and os.path.exists(file_path):
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            markdown_content = f.read()
-
-                    # 处理图片URL - 使用GitHub Raw URL
-                    image_url = recipe_data.get('image_url', '')
-                    if image_url and not image_url.startswith('http'):
-                        if file_path:
-                            file_dir = os.path.dirname(file_path)
-                            if image_url.startswith('./'):
-                                image_url = image_url[2:]
-                            # 构建GitHub LFS媒体URL
-                            # 从file_path中提取dishes目录后的路径
-                            if 'dishes' in file_path:
-                                # 找到dishes的位置，提取dishes后面的路径
-                                dishes_index = file_path.find('dishes')
-                                if dishes_index != -1:
-                                    # 提取从dishes开始到文件名之前的路径
-                                    path_after_dishes = file_path[dishes_index:].replace('\\', '/')
-                                    # 移除文件名，只保留目录路径
-                                    dir_path = '/'.join(path_after_dishes.split('/')[:-1])
-                                    github_path = f"{dir_path}/{image_url}"
-                                else:
-                                    github_path = image_url
-                            else:
-                                github_path = image_url
-
-                            # 使用您fork的HowToCook仓库的GitHub LFS媒体URL
-                            github_raw_url = f"https://media.githubusercontent.com/media/FutureUnreal/HowToCook/master/{github_path}"
-                            image_url = github_raw_url
-                            logger.info(f"详情页GitHub图片URL: {image_url}")
-
-                    # 构建详情数据
-                    recipe_detail = {
-                        "id": recipe_id,
-                        "name": recipe_data.get('name', '未知菜谱'),
-                        "description": recipe_data.get('description', '美味可口的经典菜谱'),
-                        "category": recipe_data.get('category', '家常菜'),
-                        "imageUrl": image_url or f"https://via.placeholder.com/600x400?text={recipe_data.get('name', 'Recipe')}",
-                        "cookingTime": recipe_data.get('cooking_time', 30),
-                        "prepTime": 15,
-                        "servings": 2,
-                        "difficulty": "medium",
-                        "tags": recipe_data.get('tags', []),
-                        "ingredients": [],  # 可以从Markdown解析
-                        "steps": [],  # 可以从Markdown解析
-                        "markdownContent": markdown_content,
-                        "createdAt": "2024-01-01T00:00:00Z",
-                        "updatedAt": "2024-01-01T00:00:00Z"
-                    }
-
-                    return recipe_detail
-
-            # 如果索引文件方法失败，返回None
-            logger.warning(f"无法找到菜谱: {recipe_id}")
-            return None
-
-        except Exception as e:
-            logger.error(f"获取菜谱详情失败: {e}")
-            return None
-
-    def _read_recipe_markdown(self, recipe_name):
-        """读取菜谱的原始Markdown文件"""
-        try:
-            import os
-            import glob
-
-            # 在data/dishes目录中搜索匹配的Markdown文件
-            dishes_dir = "data/dishes"
-            if not os.path.exists(dishes_dir):
-                return None
-
-            # 搜索包含菜谱名称的Markdown文件
-            for root, dirs, files in os.walk(dishes_dir):
-                for file in files:
-                    if file.endswith('.md') and recipe_name in file:
-                        file_path = os.path.join(root, file)
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            return f.read()
-
-            return None
-
-        except Exception as e:
-            logger.error(f"读取菜谱Markdown文件失败: {e}")
-            return None
-
-    def _extract_image_from_markdown(self, markdown_content):
-        """从Markdown内容中提取图片URL"""
-        if not markdown_content:
-            return None
-
-        try:
-            import re
-            # 匹配Markdown图片语法 ![alt](url)
-            image_pattern = r'!\[.*?\]\((.*?)\)'
-            matches = re.findall(image_pattern, markdown_content)
-
-            if matches:
-                # 返回第一个找到的图片URL
-                return matches[0]
-
-            return None
-
-        except Exception as e:
-            logger.error(f"提取图片URL失败: {e}")
-            return None
+    # _extract_image_from_markdown 方法已移至 RecipeRecommendationManager
 
     def _cleanup(self):
         """清理资源"""
