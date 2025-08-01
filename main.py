@@ -58,6 +58,14 @@ class AdvancedGraphRAGSystem:
         
         # 系统状态
         self.system_ready = False
+
+        # 🚀 会话级语义缓存系统 - 针对每个聊天窗口独立缓存
+        self.session_caches = {}  # 按session_id分组的缓存：{session_id: {query: response}}
+        self.session_embeddings = {}  # 按session_id分组的向量：{session_id: {query: embedding}}
+        self.session_contexts = {}  # 按session_id分组的上下文：{session_id: [messages]}
+        self.cache_threshold = 0.75  # 语义相似度阈值
+        self.max_session_cache_size = 50  # 每个会话最大缓存条目数
+        self.max_context_length = 10  # 每个会话保留的最大上下文消息数
         
     def initialize_system(self):
         """初始化高级图RAG系统"""
@@ -296,9 +304,150 @@ class AdvancedGraphRAGSystem:
         except Exception as e:
             logger.error(f"问答处理失败: {e}")
             return f"抱歉，处理问题时出现错误：{str(e)}", None
-    
 
-    
+    def _get_query_embedding(self, query: str):
+        """获取查询的向量表示（用于语义缓存）"""
+        try:
+            if hasattr(self.index_module, 'embedding_model'):
+                # 使用现有的embedding模型
+                return self.index_module.embedding_model.encode([query])[0]
+            return None
+        except Exception as e:
+            logger.warning(f"获取查询向量失败: {e}")
+            return None
+
+    def _calculate_similarity(self, embedding1, embedding2):
+        """计算两个向量的余弦相似度"""
+        try:
+            import numpy as np
+            dot_product = np.dot(embedding1, embedding2)
+            norm1 = np.linalg.norm(embedding1)
+            norm2 = np.linalg.norm(embedding2)
+            return dot_product / (norm1 * norm2)
+        except:
+            return 0.0
+
+    def _check_semantic_cache(self, query: str, session_id: str = None):
+        """检查会话级语义缓存中是否有相似查询"""
+        if not session_id or session_id not in self.session_caches:
+            return None
+
+        session_cache = self.session_caches[session_id]
+        session_embeddings = self.session_embeddings.get(session_id, {})
+
+        if not session_cache:
+            return None
+
+        query_embedding = self._get_query_embedding(query)
+        if query_embedding is None:
+            return None
+
+        # 查找最相似的缓存查询
+        best_similarity = 0
+        best_response = None
+
+        for cached_query, cached_data in session_cache.items():
+            cached_embedding = session_embeddings.get(cached_query)
+            if cached_embedding is not None:
+                similarity = self._calculate_similarity(query_embedding, cached_embedding)
+                if similarity > best_similarity and similarity >= self.cache_threshold:
+                    best_similarity = similarity
+                    best_response = cached_data['response']
+
+        if best_response:
+            logger.info(f"🎯 会话缓存命中! Session: {session_id}, 相似度: {best_similarity:.3f}")
+            return best_response
+
+        return None
+
+    def _add_to_semantic_cache(self, query: str, response: str, session_id: str = None):
+        """将查询-答案对添加到会话级语义缓存"""
+        try:
+            if not session_id:
+                return
+
+            # 初始化会话缓存
+            if session_id not in self.session_caches:
+                self.session_caches[session_id] = {}
+                self.session_embeddings[session_id] = {}
+
+            session_cache = self.session_caches[session_id]
+            session_embeddings = self.session_embeddings[session_id]
+
+            # 限制会话缓存大小
+            if len(session_cache) >= self.max_session_cache_size:
+                # 删除最旧的缓存项
+                oldest_key = next(iter(session_cache))
+                del session_cache[oldest_key]
+                del session_embeddings[oldest_key]
+
+            query_embedding = self._get_query_embedding(query)
+            if query_embedding is not None:
+                session_cache[query] = {
+                    'response': response,
+                    'timestamp': datetime.now()
+                }
+                session_embeddings[query] = query_embedding
+                logger.info(f"💾 已缓存到会话 {session_id}: {query[:50]}...")
+        except Exception as e:
+            logger.warning(f"会话缓存添加失败: {e}")
+
+    def _add_to_context(self, session_id: str, user_message: str, ai_response: str):
+        """添加消息到会话上下文"""
+        try:
+            if not session_id:
+                return
+
+            if session_id not in self.session_contexts:
+                self.session_contexts[session_id] = []
+
+            context = self.session_contexts[session_id]
+
+            # 添加用户消息和AI回复
+            context.append({
+                'role': 'user',
+                'content': user_message,
+                'timestamp': datetime.now()
+            })
+            context.append({
+                'role': 'assistant',
+                'content': ai_response,
+                'timestamp': datetime.now()
+            })
+
+            # 限制上下文长度
+            if len(context) > self.max_context_length * 2:  # *2 因为每轮对话有两条消息
+                context = context[-(self.max_context_length * 2):]
+                self.session_contexts[session_id] = context
+
+            logger.info(f"📝 已添加上下文到会话 {session_id}, 当前长度: {len(context)}")
+        except Exception as e:
+            logger.warning(f"上下文添加失败: {e}")
+
+    def _get_context_for_query(self, session_id: str, current_query: str):
+        """获取会话上下文，用于增强当前查询"""
+        try:
+            if not session_id or session_id not in self.session_contexts:
+                return current_query
+
+            context = self.session_contexts[session_id]
+            if not context:
+                return current_query
+
+            # 构建包含上下文的查询
+            context_text = ""
+            for msg in context[-6:]:  # 只取最近3轮对话
+                role = "用户" if msg['role'] == 'user' else "助手"
+                context_text += f"{role}: {msg['content'][:100]}...\n"
+
+            enhanced_query = f"基于以下对话上下文回答问题：\n{context_text}\n当前问题: {current_query}"
+            logger.info(f"🔗 已为会话 {session_id} 添加上下文，查询长度: {len(enhanced_query)}")
+            return enhanced_query
+
+        except Exception as e:
+            logger.warning(f"上下文获取失败: {e}")
+            return current_query
+
     def run_web_service(self):
         """运行Web服务模式"""
         if not self.system_ready:
@@ -348,14 +497,38 @@ class AdvancedGraphRAGSystem:
                     
                     if not query:
                         return jsonify({"error": "消息不能为空"}), 400
-                    
-                    # 使用查询路由器获取文档，然后生成答案
+
+                    # 获取会话ID（如果没有则生成一个）
+                    import time as time_module
+                    session_id = data.get('session_id', f"session_{int(time_module.time())}")
+
+                    # 🚀 首先检查会话级语义缓存
+                    cached_response = self._check_semantic_cache(query, session_id)
+                    if cached_response:
+                        # 即使是缓存命中，也要添加到上下文
+                        self._add_to_context(session_id, query, cached_response)
+                        return jsonify({
+                            "response": cached_response,
+                            "query": query,
+                            "session_id": session_id,
+                            "timestamp": str(datetime.now()),
+                            "from_cache": True
+                        })
+
+                    # 🔗 获取上下文增强的查询
+                    enhanced_query = self._get_context_for_query(session_id, query)
+
+                    # 缓存未命中，执行完整的RAG流程
                     documents, analysis = self.query_router.route_query(
-                        query=query,
+                        query=enhanced_query,
                         top_k=self.config.top_k
                     )
                     # 使用生成模块生成最终答案
-                    response = self.generation_module.generate_adaptive_answer(query, documents)
+                    response = self.generation_module.generate_adaptive_answer(enhanced_query, documents)
+
+                    # 将结果添加到会话缓存和上下文
+                    self._add_to_semantic_cache(query, response, session_id)
+                    self._add_to_context(session_id, query, response)
                     
                     return jsonify({
                         "response": response,
@@ -379,24 +552,46 @@ class AdvancedGraphRAGSystem:
 
                     def generate():
                         try:
-                            # 使用查询路由器获取文档，然后生成答案
+                            # 获取会话ID
+                            import time as time_module
+                            session_id = data.get('session_id', f"session_{int(time_module.time())}")
+
+                            # 🚀 首先检查会话级语义缓存
+                            cached_response = self._check_semantic_cache(query, session_id)
+                            if cached_response:
+                                # 缓存命中，快速返回
+                                self._add_to_context(session_id, query, cached_response)
+                                import json
+                                chunk_size = 3
+                                for i in range(0, len(cached_response), chunk_size):
+                                    chunk = cached_response[i:i+chunk_size]
+                                    data_obj = {"chunk": chunk, "from_cache": True}
+                                    yield f"data: {json.dumps(data_obj)}\n\n"
+                                    time.sleep(0.02)  # 更快的流式响应
+                                yield f"data: [DONE]\n\n"
+                                return
+
+                            # 🔗 获取上下文增强的查询
+                            enhanced_query = self._get_context_for_query(session_id, query)
+
+                            # 缓存未命中，执行完整的RAG流程
                             documents, analysis = self.query_router.route_query(
-                                query=query,
+                                query=enhanced_query,
                                 top_k=self.config.top_k
                             )
-                            # 使用生成模块生成最终答案
-                            response = self.generation_module.generate_adaptive_answer(query, documents)
 
-                            # 模拟流式响应 - 按字符分块发送
+                            # 🚀 使用真正的流式生成
                             import json
-                            import time
+                            full_response = ""
 
-                            chunk_size = 3  # 每次发送3个字符
-                            for i in range(0, len(response), chunk_size):
-                                chunk = response[i:i+chunk_size]
+                            for chunk in self.generation_module.generate_adaptive_answer_stream(enhanced_query, documents):
+                                full_response += chunk
                                 data_obj = {"chunk": chunk}
                                 yield f"data: {json.dumps(data_obj)}\n\n"
-                                time.sleep(0.05)  # 模拟延迟
+
+                            # 将完整结果添加到会话缓存和上下文
+                            self._add_to_semantic_cache(query, full_response, session_id)
+                            self._add_to_context(session_id, query, full_response)
 
                             # 发送结束标记
                             yield f"data: [DONE]\n\n"
@@ -504,7 +699,6 @@ class AdvancedGraphRAGSystem:
             print(f"💬 聊天API: http://localhost:8000/api/chat")
             print(f"🌊 流式聊天: http://localhost:8000/api/chat/stream")
             print(f"🍽️ 菜谱推荐: http://localhost:8000/api/recipes/recommendations")
-            print(f"🔥 热门菜谱: http://localhost:8000/api/recipes/popular")
             print(f"📖 菜谱详情: http://localhost:8000/api/recipes/<recipe_id>")
             print(f"📈 统计信息: http://localhost:8000/api/stats")
             
@@ -517,109 +711,6 @@ class AdvancedGraphRAGSystem:
         except Exception as e:
             logger.error(f"Web服务启动失败: {e}")
             print(f"❌ Web服务启动失败: {e}")
-
-    
-    def run_interactive(self):
-        """运行交互式问答"""
-        if not self.system_ready:
-            print("❌ 系统未就绪，请先构建知识库")
-            return
-            
-        print("\n欢迎使用尝尝咸淡RAG烹饪助手！")
-        print("可用功能：")
-        print("   - 'stats' : 查看系统统计")
-        print("   - 'rebuild' : 重建知识库")
-        print("   - 'quit' : 退出系统")
-        print("\n" + "="*50)
-        
-        while True:
-            try:
-                user_input = input("\n您的问题: ").strip()
-                
-                if not user_input:
-                    continue
-                    
-                if user_input.lower() == 'quit':
-                    break
-                elif user_input.lower() == 'stats':
-                    self._show_system_stats()
-                    continue
-                elif user_input.lower() == 'rebuild':
-                    self._rebuild_knowledge_base()
-                    continue
-                
-                # 普通问答 - 使用默认设置
-                use_stream = True  # 默认使用流式输出
-                explain_routing = False  # 默认不显示路由决策
-
-                print("\n回答:")
-                
-                result, analysis = self.ask_question_with_routing(
-                    user_input, 
-                    stream=use_stream, 
-                    explain_routing=explain_routing
-                )
-                
-                if not use_stream and result:
-                    print(f"{result}\n")
-                
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                print(f"处理问题时出错: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        print("\n👋 感谢使用尝尝咸淡RAG烹饪助手！")
-        self._cleanup()
-    
-    def _show_system_stats(self):
-        """显示系统统计信息"""
-        print("\n系统运行统计")
-        print("=" * 40)
-        
-        # 路由统计
-        route_stats = self.query_router.get_route_statistics()
-        total_queries = route_stats.get('total_queries', 0)
-        
-        if total_queries > 0:
-            print(f"总查询次数: {total_queries}")
-            print(f"传统检索: {route_stats.get('traditional_count', 0)} ({route_stats.get('traditional_ratio', 0):.1%})")
-            print(f"图RAG检索: {route_stats.get('graph_rag_count', 0)} ({route_stats.get('graph_rag_ratio', 0):.1%})")
-            print(f"组合策略: {route_stats.get('combined_count', 0)} ({route_stats.get('combined_ratio', 0):.1%})")
-        else:
-            print("暂无查询记录")
-        
-        # 知识库统计
-        self._show_knowledge_base_stats()
-    
-    def _rebuild_knowledge_base(self):
-        """重建知识库"""
-        print("\n准备重建知识库...")
-        
-        # 确认操作
-        confirm = input("⚠️  这将删除现有的向量数据并重新构建，是否继续？(y/N): ").strip().lower()
-        if confirm != 'y':
-            print("❌ 重建操作已取消")
-            return
-        
-        try:
-            print("删除现有的Milvus集合...")
-            if self.index_module.delete_collection():
-                print("✅ 现有集合已删除")
-            else:
-                print("删除集合时出现问题，继续重建...")
-            
-            # 重新构建知识库
-            print("开始重建知识库...")
-            self.build_knowledge_base()
-            
-            print("✅ 知识库重建完成！")
-            
-        except Exception as e:
-            logger.error(f"重建知识库失败: {e}")
-            print(f"❌ 重建失败: {e}")
-            print("建议：请检查Milvus服务状态后重试")
     
     def _get_featured_recipes_from_db(self, limit=6):
         """从图数据库获取精选推荐菜谱"""
@@ -731,120 +822,6 @@ class AdvancedGraphRAGSystem:
             }
         ]
         return fallback_recipes[:limit]
-
-    def _get_popular_recipes_from_db(self, limit=6):
-        """从图数据库获取热门菜谱"""
-        try:
-            if not hasattr(self, 'graph_rag_retrieval') or not self.graph_rag_retrieval.driver:
-                logger.warning("图数据库连接不可用，返回空结果")
-                return []
-
-            with self.graph_rag_retrieval.driver.session() as session:
-                # 查询热门菜谱，按评分和名称排序
-                cypher_query = """
-                MATCH (r:Recipe)
-                WHERE r.nodeId >= '200000000'
-                OPTIONAL MATCH (r)-[:BELONGS_TO_CATEGORY]->(c:Category)
-                WITH r, c
-                RETURN
-                    r.nodeId as id,
-                    r.name as name,
-                    COALESCE(r.description, '深受用户喜爱的经典菜谱') as description,
-                    COALESCE(c.name, r.category, '热门菜谱') as category,
-                    COALESCE(r.difficulty, '★★★') as difficulty_stars,
-                    COALESCE(r.cookingTime, 30) as cookingTime,
-                    COALESCE(r.prepTime, 15) as prepTime,
-                    COALESCE(r.servings, 2) as servings,
-                    COALESCE(r.tags, []) as tags,
-                    COALESCE(r.rating, 4.5) as rating
-                ORDER BY
-                    CASE WHEN r.rating IS NOT NULL THEN r.rating ELSE 4.5 END DESC,
-                    r.name
-                LIMIT $limit
-                """
-
-                result = session.run(cypher_query, {"limit": limit})
-                recipes = []
-
-                for record in result:
-                    # 转换难度星级为前端期望的格式
-                    difficulty_stars = record.get('difficulty_stars', '★★★')
-                    star_count = difficulty_stars.count('★')
-                    if star_count <= 2:
-                        difficulty = 'easy'
-                    elif star_count <= 3:
-                        difficulty = 'medium'
-                    else:
-                        difficulty = 'hard'
-
-                    recipe = {
-                        "id": record.get('id'),
-                        "name": record.get('name'),
-                        "description": record.get('description'),
-                        "category": record.get('category'),
-                        "imageUrl": f"https://via.placeholder.com/300x200?text={record.get('name', 'Recipe')}",
-                        "cookingTime": int(record.get('cookingTime', 30)),
-                        "prepTime": int(record.get('prepTime', 15)),
-                        "servings": int(record.get('servings', 2)),
-                        "difficulty": difficulty,
-                        "rating": float(record.get('rating', 4.5)),
-                        "tags": record.get('tags', []),
-                        "ingredients": [],
-                        "steps": [],
-                        "viewCount": 1000 + len(recipes) * 100,  # 模拟浏览量
-                        "createdAt": "2024-01-01T00:00:00Z",
-                        "updatedAt": "2024-01-01T00:00:00Z"
-                    }
-                    recipes.append(recipe)
-
-                logger.info(f"从数据库获取到 {len(recipes)} 个热门菜谱")
-                return recipes
-
-        except Exception as e:
-            logger.error(f"从数据库获取热门菜谱失败: {e}")
-            return []
-
-    def _get_fallback_popular_recipes(self, limit=6):
-        """备用热门菜谱（当数据库查询失败时使用）"""
-        fallback_popular = [
-            {
-                "id": "fallback_hot_001",
-                "name": "可乐鸡翅",
-                "description": "甜香诱人，老少皆爱的网红菜",
-                "category": "热门菜谱",
-                "imageUrl": "https://via.placeholder.com/300x200?text=可乐鸡翅",
-                "cookingTime": 30,
-                "prepTime": 10,
-                "servings": 3,
-                "difficulty": "easy",
-                "rating": 4.8,
-                "tags": ["热门", "甜香", "网红"],
-                "ingredients": [],
-                "steps": [],
-                "viewCount": 15680,
-                "createdAt": "2024-01-01T00:00:00Z",
-                "updatedAt": "2024-01-01T00:00:00Z"
-            },
-            {
-                "id": "fallback_hot_002",
-                "name": "糖醋里脊",
-                "description": "酸甜可口，外酥内嫩的经典菜",
-                "category": "热门菜谱",
-                "imageUrl": "https://via.placeholder.com/300x200?text=糖醋里脊",
-                "cookingTime": 25,
-                "prepTime": 15,
-                "servings": 3,
-                "difficulty": "medium",
-                "rating": 4.7,
-                "tags": ["热门", "酸甜", "经典"],
-                "ingredients": [],
-                "steps": [],
-                "viewCount": 12450,
-                "createdAt": "2024-01-01T00:00:00Z",
-                "updatedAt": "2024-01-01T00:00:00Z"
-            }
-        ]
-        return fallback_popular[:limit]
 
     def _get_random_recipes_with_images(self, limit=3):
         """从预生成的索引文件获取随机的有图片的菜谱推荐"""
@@ -1104,14 +1081,8 @@ def main():
         # 构建知识库
         rag_system.build_knowledge_base()
         
-        # 检查是否在Docker环境中运行
-        import os
-        if os.getenv('DOCKER_ENV') or not os.isatty(0):
-            # Docker环境或非交互环境，启动Web服务
-            rag_system.run_web_service()
-        else:
-            # 本地环境，运行交互式问答
-            rag_system.run_interactive()
+        # 启动Web服务（Docker环境）
+        rag_system.run_web_service()
         
     except Exception as e:
         logger.error(f"系统运行失败: {e}")

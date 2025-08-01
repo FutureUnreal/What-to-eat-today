@@ -37,6 +37,26 @@ class GenerationIntegrationModule:
 
         logger.info(f"生成模块初始化完成，模型: {model_name}, API地址: {self.base_url}")
 
+    def _build_prompt(self, question: str, context: str) -> str:
+        """构建统一的提示词"""
+        return f"""
+        作为一位专业的烹饪助手，请基于以下信息回答用户的问题。
+
+        检索到的相关信息：
+        {context}
+
+        用户问题：{question}
+
+        请提供准确、实用的回答。根据问题的性质：
+        - 如果是询问多个菜品，请提供清晰的列表
+        - 如果是询问具体制作方法，请提供详细步骤
+        - 如果是一般性咨询，请提供综合性回答
+
+        重要提醒：如果问题涉及之前对话中提到的具体菜谱或食材，请严格基于之前提供的信息回答，不要添加之前没有提到的食材或调料。
+
+        回答：
+        """
+
     def generate_adaptive_answer(self, question: str, documents: List[Document]) -> str:
         """
         智能统一答案生成
@@ -56,23 +76,9 @@ class GenerationIntegrationModule:
                     context_parts.append(content)
         
         context = "\n\n".join(context_parts)
-        
-        # LightRAG风格的统一提示词
-        prompt = f"""
-        作为一位专业的烹饪助手，请基于以下信息回答用户的问题。
 
-        检索到的相关信息：
-        {context}
-
-        用户问题：{question}
-
-        请提供准确、实用的回答。根据问题的性质：
-        - 如果是询问多个菜品，请提供清晰的列表
-        - 如果是询问具体制作方法，请提供详细步骤
-        - 如果是一般性咨询，请提供综合性回答
-
-        回答：
-        """
+        # 使用统一的提示词构建方法
+        prompt = self._build_prompt(question, context)
         
         try:
             response = self.client.chat.completions.create(
@@ -107,23 +113,9 @@ class GenerationIntegrationModule:
                     context_parts.append(content)
         
         context = "\n\n".join(context_parts)
-        
-        # LightRAG风格的统一提示词
-        prompt = f"""
-        作为一位专业的烹饪助手，请基于以下信息回答用户的问题。
 
-        检索到的相关信息：
-        {context}
-
-        用户问题：{question}
-
-        请提供准确、实用的回答。根据问题的性质：
-        - 如果是询问多个菜品，请提供清晰的列表
-        - 如果是询问具体制作方法，请提供详细步骤
-        - 如果是一般性咨询，请提供综合性回答
-
-        回答：
-        """
+        # 使用统一的提示词构建方法
+        prompt = self._build_prompt(question, context)
         
         for attempt in range(max_retries):
             try:

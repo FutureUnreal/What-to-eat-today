@@ -60,12 +60,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             {isUser ? '您' : 'AI助手'}
           </span>
           <span className="text-xs text-gray-500">
-<<<<<<< HEAD
-            {message.timestamp.toLocaleTimeString('zh-CN', {
-              hour: '2-digit',
-              minute: '2-digit'
-            })}
-=======
             {(() => {
               try {
                 const date = message.timestamp instanceof Date
@@ -79,7 +73,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 return '刚刚';
               }
             })()}
->>>>>>> 3231226 (Reinitialize Git repository)
           </span>
         </div>
         

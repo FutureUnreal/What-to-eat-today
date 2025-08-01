@@ -153,12 +153,6 @@ export const recipeApi = {
     return response.data
   },
 
-  // 获取热门菜谱
-  getPopularRecipes: async (limit = 10): Promise<ApiResponse<Recipe[]>> => {
-    const response = await api.get(`/api/recipes/popular?limit=${limit}`)
-    return response.data
-  },
-
   // 获取分类菜谱
   getRecipesByCategory: async (category: string, page = 1): Promise<ApiResponse<SearchResult>> => {
     const response = await api.get(`/api/recipes/category/${category}?page=${page}`)
