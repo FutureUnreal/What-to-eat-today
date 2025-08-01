@@ -16,9 +16,6 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
   icon,
   variant = 'default',
   className = '',
-<<<<<<< HEAD
-  ...props
-=======
   onChange,
   onFocus,
   onBlur,
@@ -28,7 +25,6 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
   disabled,
   required,
   ...otherProps
->>>>>>> 3231226 (Reinitialize Git repository)
 }, ref) => {
   const baseClasses = 'w-full px-4 py-3 rounded-xl border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1'
   
@@ -61,9 +57,6 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
           ref={ref}
           className={classes}
           whileFocus={{ scale: 1.01 }}
-<<<<<<< HEAD
-          {...props}
-=======
           onChange={onChange}
           onFocus={onFocus}
           onBlur={onBlur}
@@ -72,7 +65,6 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
           type={type}
           disabled={disabled}
           required={required}
->>>>>>> 3231226 (Reinitialize Git repository)
         />
       </div>
       

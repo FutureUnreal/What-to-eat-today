@@ -23,19 +23,6 @@ class GenerationIntegrationModule:
         self.temperature = temperature
         self.max_tokens = max_tokens
         
-<<<<<<< HEAD
-        # 初始化OpenAI客户端（使用Moonshot API）
-        api_key = os.getenv("MOONSHOT_API_KEY")
-        if not api_key:
-            raise ValueError("请设置 MOONSHOT_API_KEY 环境变量")
-        
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url="https://api.moonshot.cn/v1"
-        )
-
-        logger.info(f"生成模块初始化完成，模型: {model_name}")
-=======
         # 统一的LLM客户端配置（支持所有兼容OpenAI格式的供应商）
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -49,7 +36,6 @@ class GenerationIntegrationModule:
         )
 
         logger.info(f"生成模块初始化完成，模型: {model_name}, API地址: {self.base_url}")
->>>>>>> 3231226 (Reinitialize Git repository)
 
     def generate_adaptive_answer(self, question: str, documents: List[Document]) -> str:
         """

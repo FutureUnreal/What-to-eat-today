@@ -307,12 +307,8 @@ class HybridRetrievalModule:
                     
                     # 添加源实体的详细信息
                     if source_entity.entity_type == "Recipe":
-<<<<<<< HEAD
-                        content_parts.append(f"菜品详情: {source_entity.value_content.split('\\n')[0]}")
-=======
                         newline = '\n'
                         content_parts.append(f"菜品详情: {source_entity.value_content.split(newline)[0]}")
->>>>>>> 3231226 (Reinitialize Git repository)
                     
                     results.append(RetrievalResult(
                         content='\n'.join(content_parts),

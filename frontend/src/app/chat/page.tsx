@@ -171,11 +171,7 @@ const ChatPage: React.FC = () => {
                             {session.messages.length} 条消息
                           </p>
                           <p className="text-xs text-gray-400">
-<<<<<<< HEAD
-                            {session.updatedAt.toLocaleDateString('zh-CN')}
-=======
                             刚刚
->>>>>>> 3231226 (Reinitialize Git repository)
                           </p>
                         </div>
                         

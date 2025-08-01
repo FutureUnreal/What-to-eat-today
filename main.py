@@ -7,10 +7,7 @@ import os
 import sys
 import time
 import logging
-<<<<<<< HEAD
-=======
 from datetime import datetime
->>>>>>> 3231226 (Reinitialize Git repository)
 from typing import List, Optional
 
 # 设置日志
@@ -302,8 +299,6 @@ class AdvancedGraphRAGSystem:
     
 
     
-<<<<<<< HEAD
-=======
     def run_web_service(self):
         """运行Web服务模式"""
         if not self.system_ready:
@@ -522,7 +517,6 @@ class AdvancedGraphRAGSystem:
         except Exception as e:
             logger.error(f"Web服务启动失败: {e}")
             print(f"❌ Web服务启动失败: {e}")
->>>>>>> 3231226 (Reinitialize Git repository)
 
     
     def run_interactive(self):
@@ -627,8 +621,6 @@ class AdvancedGraphRAGSystem:
             print(f"❌ 重建失败: {e}")
             print("建议：请检查Milvus服务状态后重试")
     
-<<<<<<< HEAD
-=======
     def _get_featured_recipes_from_db(self, limit=6):
         """从图数据库获取精选推荐菜谱"""
         try:
@@ -1087,7 +1079,6 @@ class AdvancedGraphRAGSystem:
             logger.error(f"提取图片URL失败: {e}")
             return None
 
->>>>>>> 3231226 (Reinitialize Git repository)
     def _cleanup(self):
         """清理资源"""
         if self.data_module:
@@ -1113,10 +1104,6 @@ def main():
         # 构建知识库
         rag_system.build_knowledge_base()
         
-<<<<<<< HEAD
-        # 运行交互式问答
-        rag_system.run_interactive()
-=======
         # 检查是否在Docker环境中运行
         import os
         if os.getenv('DOCKER_ENV') or not os.isatty(0):
@@ -1125,7 +1112,6 @@ def main():
         else:
             # 本地环境，运行交互式问答
             rag_system.run_interactive()
->>>>>>> 3231226 (Reinitialize Git repository)
         
     except Exception as e:
         logger.error(f"系统运行失败: {e}")

@@ -2,11 +2,7 @@
 
 import React from 'react'
 import { motion } from 'framer-motion'
-<<<<<<< HEAD
-import { Clock, Users, ChefHat, Heart, Star } from 'lucide-react'
-=======
 import { Clock, Users, ChefHat, Heart } from 'lucide-react'
->>>>>>> 3231226 (Reinitialize Git repository)
 import { Recipe } from '@/types'
 import { Card } from '@/components/ui'
 
@@ -106,16 +102,6 @@ const RecipeCard: React.FC<RecipeCardProps> = ({
               <span>{recipe.servings}人份</span>
             </div>
           </div>
-<<<<<<< HEAD
-          
-          {recipe.rating && (
-            <div className="flex items-center space-x-1">
-              <Star className="w-4 h-4 text-yellow-500 fill-current" />
-              <span>{recipe.rating.toFixed(1)}</span>
-            </div>
-          )}
-=======
->>>>>>> 3231226 (Reinitialize Git repository)
         </div>
         
         {/* 标签 */}

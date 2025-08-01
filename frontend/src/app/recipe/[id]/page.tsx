@@ -4,11 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
-<<<<<<< HEAD
-  ChefHat, Clock, Users, Star, Heart, Share2, 
-=======
   ChefHat, Clock, Users, Heart, Share2,
->>>>>>> 3231226 (Reinitialize Git repository)
   ArrowLeft, Play, BookOpen, Timer, Thermometer
 } from 'lucide-react'
 import { Button, Card, CardContent, LoadingSpinner } from '@/components/ui'
@@ -35,22 +31,11 @@ const RecipeDetailPage: React.FC = () => {
     isLoading,
     getRecipeDetails,
     toggleFavorite,
-<<<<<<< HEAD
-    isFavorited,
-    submitRating,
-    getUserRating
-=======
     isFavorited
->>>>>>> 3231226 (Reinitialize Git repository)
   } = useRecipes()
   
   const [servings, setServings] = useState(1)
   const [activeTab, setActiveTab] = useState<'ingredients' | 'steps' | 'nutrition'>('ingredients')
-<<<<<<< HEAD
-  const [userRating, setUserRating] = useState(0)
-  const [showRatingModal, setShowRatingModal] = useState(false)
-=======
->>>>>>> 3231226 (Reinitialize Git repository)
   
   useEffect(() => {
     if (recipeId) {
@@ -61,15 +46,8 @@ const RecipeDetailPage: React.FC = () => {
   useEffect(() => {
     if (currentRecipe) {
       setServings(currentRecipe.servings)
-<<<<<<< HEAD
-      const rating = getUserRating(currentRecipe.id)
-      setUserRating(rating?.rating || 0)
-    }
-  }, [currentRecipe, getUserRating])
-=======
     }
   }, [currentRecipe])
->>>>>>> 3231226 (Reinitialize Git repository)
   
   const handleStartCooking = () => {
     if (currentRecipe) {
@@ -99,17 +77,6 @@ const RecipeDetailPage: React.FC = () => {
     }
   }
   
-<<<<<<< HEAD
-  const handleRatingSubmit = async (rating: number, review?: string) => {
-    if (currentRecipe) {
-      await submitRating(currentRecipe.id, rating, review)
-      setUserRating(rating)
-      setShowRatingModal(false)
-    }
-  }
-=======
-
->>>>>>> 3231226 (Reinitialize Git repository)
   
   if (isLoading) {
     return (
@@ -259,32 +226,6 @@ const RecipeDetailPage: React.FC = () => {
                   </CardContent>
                 </Card>
               </div>
-<<<<<<< HEAD
-              
-              {/* 评分 */}
-              {currentRecipe.rating && (
-                <div className="flex items-center space-x-2 mb-4">
-                  <div className="flex items-center">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star
-                        key={star}
-                        className={`w-5 h-5 ${
-                          star <= currentRecipe.rating!
-                            ? 'text-yellow-500 fill-current'
-                            : 'text-gray-300'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-sm text-gray-600">
-                    {currentRecipe.rating.toFixed(1)} 分
-                  </span>
-                </div>
-              )}
-              
-=======
-
->>>>>>> 3231226 (Reinitialize Git repository)
               {/* 标签 */}
               <div className="flex flex-wrap gap-2">
                 {currentRecipe.tags.map((tag, index) => (

@@ -20,13 +20,9 @@ const Button: React.FC<ButtonProps> = ({
   children,
   className = '',
   disabled,
-<<<<<<< HEAD
-  ...props
-=======
   onClick,
   type = 'button',
   ...otherProps
->>>>>>> 3231226 (Reinitialize Git repository)
 }) => {
   const baseClasses = 'inline-flex items-center justify-center font-medium rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed'
   
@@ -51,12 +47,8 @@ const Button: React.FC<ButtonProps> = ({
       whileTap={{ scale: disabled || loading ? 1 : 0.98 }}
       className={classes}
       disabled={disabled || loading}
-<<<<<<< HEAD
-      {...props}
-=======
       onClick={onClick}
       type={type}
->>>>>>> 3231226 (Reinitialize Git repository)
     >
       {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
       {!loading && icon && <span className="mr-2">{icon}</span>}
