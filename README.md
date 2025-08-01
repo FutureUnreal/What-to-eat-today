@@ -2,6 +2,8 @@
 
 本项目是基于 [Datawhale/all-in-rag](https://github.com/datawhalechina/all-in-rag) 教程的完整实战案例，展示了如何使用图RAG技术构建智能烹饪助手，为您推荐个性化美食和详细烹饪指导。
 
+![界面](./view.png)
+
 ## ✨ 特性
 
 - 🤖 **智能推荐**: 基于图RAG + 向量检索的双重AI推荐
