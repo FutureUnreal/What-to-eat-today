@@ -243,8 +243,6 @@ checkpoints/
 # 数据文件
 data/raw/
 data/processed/
-*.csv
-*.json
 *.xml
 *.xlsx
 *.xls
